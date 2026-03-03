@@ -9,6 +9,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.core.framework import graph_pb2
 from tensorflow.core.protobuf import config_pb2
+from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.client import timeline
 
 tf.compat.v1.disable_eager_execution()
@@ -350,6 +351,7 @@ def run_inference(
     save_input_npz=None,
     load_input_npz=None,
     save_output_npz=None,
+    disable_grappler=False,
     device=None,
 ):
     # load_musa_plugin()
@@ -374,6 +376,13 @@ def run_inference(
     config.allow_soft_placement = (not strict_placement)
     config.log_device_placement = True
     config.gpu_options.allow_growth = True
+    if disable_grappler:
+        rew = config.graph_options.rewrite_options
+        rew.disable_meta_optimizer = True
+        rew.layout_optimizer = rewriter_config_pb2.RewriterConfig.OFF
+        rew.arithmetic_optimization = rewriter_config_pb2.RewriterConfig.OFF
+        rew.constant_folding = rewriter_config_pb2.RewriterConfig.OFF
+        rew.remapping = rewriter_config_pb2.RewriterConfig.OFF
 
     placeholders = scan_placeholders(graph, spec_path=spec_path, batch_size=batch_size)
     outputs = find_output_tensors(graph)
@@ -434,6 +443,7 @@ if __name__ == "__main__":
     parser.add_argument("--load-input-npz", default=None)
     parser.add_argument("--save-output-npz", default=None)
     parser.add_argument("--load-musa-plugin", action="store_true")
+    parser.add_argument("--disable-grappler", action="store_true")
     args = parser.parse_args()
 
     if args.save_input_npz and args.load_input_npz:
@@ -452,6 +462,7 @@ if __name__ == "__main__":
         save_input_npz=args.save_input_npz,
         load_input_npz=args.load_input_npz,
         save_output_npz=args.save_output_npz,
+        disable_grappler=args.disable_grappler,
         device="musa" if args.load_musa_plugin else "cuda",
     )
     

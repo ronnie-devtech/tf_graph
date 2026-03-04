@@ -105,6 +105,25 @@ def load_named_arrays(npz_path):
     arrays = [data[f"arr_{i}"] for i in range(len(names))]
     return names, arrays
 
+def log_op_dtypes(graph, csv_path, op_name_to_test=None):
+    if op_name_to_test is None:
+        return 
+    op_rows = []
+    for op in graph.get_operations():
+        if op.type != op_name_to_test:
+            continue
+        input_names = ";".join(t.name for t in op.inputs) or "<none>"
+        input_dtypes = ";".join(t.dtype.name for t in op.inputs) or "<unknown>"
+        output_names = ";".join(t.name for t in op.outputs) or "<none>"
+        output_dtypes = ";".join(t.dtype.name for t in op.outputs) or "<unknown>"
+        op_rows.append([op.name, input_names, input_dtypes, output_names, output_dtypes])
+
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["op_node", "input_tensor", "input_dtype", "output_tensor", "output_dtype"])
+        writer.writerows(op_rows)
+
+    print(f"Logged {len(op_rows)} {op_name_to_test} node dtype pairs to: {csv_path}")
 
 def get_model_output_dir(pb_path, device=None):
     pb_abs = os.path.abspath(pb_path)
@@ -352,6 +371,7 @@ def run_inference(
     load_input_npz=None,
     save_output_npz=None,
     disable_grappler=False,
+    dtype_to_log_for_profile=None,
     device=None,
 ):
     # load_musa_plugin()
@@ -371,6 +391,7 @@ def run_inference(
     timeline_json = resolve_model_path(model_output_dir, None, "tf_timeline.json")
     op_profile_csv = resolve_model_path(model_output_dir, None, "op_profile.csv")
     node_profile_csv = resolve_model_path(model_output_dir, None, "node_profile.csv")
+    dtype_to_log_csv = resolve_model_path(model_output_dir, None, f"{dtype_to_log_for_profile}_dtypes.csv")
 
     config = tf.compat.v1.ConfigProto()
     config.allow_soft_placement = (not strict_placement)
@@ -386,6 +407,7 @@ def run_inference(
 
     placeholders = scan_placeholders(graph, spec_path=spec_path, batch_size=batch_size)
     outputs = find_output_tensors(graph)
+    log_op_dtypes(graph, dtype_to_log_csv, dtype_to_log_for_profile)
 
     print("\n===== Placeholders =====")
     for ph in placeholders:
@@ -444,6 +466,7 @@ if __name__ == "__main__":
     parser.add_argument("--save-output-npz", default=None)
     parser.add_argument("--load-musa-plugin", action="store_true")
     parser.add_argument("--disable-grappler", action="store_true")
+    parser.add_argument("--dtype_to_log_for_profile", default=None, help="If set, will log the input/output dtypes of all nodes of this op type to a csv for analysis.")
     args = parser.parse_args()
 
     if args.save_input_npz and args.load_input_npz:
@@ -464,5 +487,6 @@ if __name__ == "__main__":
         save_output_npz=args.save_output_npz,
         disable_grappler=args.disable_grappler,
         device="musa" if args.load_musa_plugin else "cuda",
+        dtype_to_log_for_profile=args.dtype_to_log_for_profile
     )
     
